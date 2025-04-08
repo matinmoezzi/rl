@@ -13,7 +13,7 @@ logger:
   project_name: torchrl_example_ibc
   exp_name: ibc_${replay_buffer.dataset}
   group_name: null
-  eval_iter: 10_000
+  eval_iter: 5_000
   eval_steps: 5000
   mode: online
   eval_envs: 1
@@ -27,23 +27,25 @@ replay_buffer:
 
 # optimization
 optim:
-  device: cpu
+  device: cuda
   lr: 5e-4
   weight_decay: 0.0
   gradient_steps: 100_000
-  lr_decay: 0.99
+  lr_anneal_init: 1000
+  lr_anneal_mult: 1
+  lr_anneal_min: 1e-5
 
 # network
 model:
   num_cells: 512
-  depth: 8
+  depth: 4
   activation: relu
 
   # stochastic optimizer hyperparameters
   optimizer:
-    type: mcmc # dfo, mcmc, autoregressive_dfo
+    type: dfo # dfo, mcmc, autoregressive_dfo
 
 compile:
-  compile: False
+  compile: True
   compile_mode:
   cudagraphs: False

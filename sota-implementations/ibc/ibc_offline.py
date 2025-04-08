@@ -131,9 +131,11 @@ def main(cfg: DictConfig):  # noqa: F821
             loss_info = update(data)
         
         scheduler.step()
+        lr = scheduler.get_last_lr()[0]
 
         # evaluation
         metrics_to_log = loss_info.to_dict()
+        metrics_to_log["lr"] = lr
         if (i + 1) % evaluation_interval == 0:
             with set_exploration_type(ExplorationType.DETERMINISTIC), timeit("eval"):
                 eval_td = eval_env.rollout(
@@ -144,14 +146,16 @@ def main(cfg: DictConfig):  # noqa: F821
                 eval_env.apply(dump_video)
             eval_reward = eval_td["next", "reward"].sum(1).mean().item()
             metrics_to_log["evaluation_reward"] = eval_reward
-            pbar.set_postfix({"eval_reward": eval_reward})
         if logger is not None:
             metrics_to_log.update(timeit.todict(prefix="time"))
             if pbar.format_dict["rate"] is not None:
                 metrics_to_log["time/speed"] = pbar.format_dict["rate"]
             log_metrics(logger, metrics_to_log, i)
 
-        pbar.set_postfix({"loss": f"{loss_info['loss'].item():.4f}"})
+        pbar_postfix = {"loss": f"{loss_info['loss'].item():.4f}", "lr": f"{lr:.6f}"}
+        if metrics_to_log.get("evaluation_reward", 0):
+            pbar_postfix["eval_reward"] = f"{metrics_to_log['evaluation_reward']:.4f}"
+        pbar.set_postfix(pbar_postfix)
     pbar.close()
     if not eval_env.is_closed:
         eval_env.close()

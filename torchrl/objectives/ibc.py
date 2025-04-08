@@ -164,9 +164,13 @@ class IBCLoss(LossModule):
         obs = torch.cat([obs[:, :1], obs], dim=1)
 
         # Random permutation for InfoNCE
-        permutation = torch.rand(targets.shape[0], targets.shape[1]).argsort(dim=1)
-        targets = targets[torch.arange(targets.shape[0]).unsqueeze(-1), permutation]
-        ground_truth = (permutation == 0).nonzero()[:, 1].to(obs.device)
+        permutation = torch.rand(
+            targets.shape[0], targets.shape[1], device=obs.device
+        ).argsort(dim=1)
+        targets = targets[
+            torch.arange(targets.shape[0], device=obs.device).unsqueeze(-1), permutation
+        ]
+        ground_truth = (permutation == 0).nonzero()[:, 1]
 
         # Compute energy and logits
         energy = self.ebm_network(obs, targets)

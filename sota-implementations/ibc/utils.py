@@ -316,7 +316,12 @@ def make_ibc_optimizer(optim_cfg, loss_module):
         weight_decay=optim_cfg.weight_decay,
         betas=optim_cfg.get("betas", (0.9, 0.999)),
     )
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=optim_cfg.lr_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=optim_cfg.lr_anneal_init,
+        T_mult=optim_cfg.lr_anneal_mult,
+        eta_min=optim_cfg.lr_anneal_min,
+    )
     return optimizer, scheduler
 
 
