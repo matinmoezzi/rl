@@ -1,15 +1,18 @@
+from abc import ABC, abstractmethod
+from functools import wraps
+from typing import Callable, Dict, Optional, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from abc import ABC, abstractmethod
-from typing import Callable, Dict, Optional, Tuple
-from functools import wraps
 
 
-def unsqueeze_repeat(x: torch.Tensor, repeat_times: int, unsqueeze_dim: int = 0) -> torch.Tensor:
-    """
-    Squeeze the tensor on `unsqueeze_dim` and then repeat in this dimension for `repeat_times` times.
+def unsqueeze_repeat(
+    x: torch.Tensor, repeat_times: int, unsqueeze_dim: int = 0
+) -> torch.Tensor:
+    """Squeeze the tensor on `unsqueeze_dim` and then repeat in this dimension for `repeat_times` times.
+
     This is useful for preprocessing the input to a model ensemble.
 
     Args:
@@ -30,8 +33,8 @@ def unsqueeze_repeat(x: torch.Tensor, repeat_times: int, unsqueeze_dim: int = 0)
         >>> x.shape == (64, 6, 4)
     """
     if not -1 <= unsqueeze_dim <= len(x.shape):
-        raise ValueError(f'unsqueeze_dim should be from {-1} to {len(x.shape)}')
-    
+        raise ValueError(f"unsqueeze_dim should be from {-1} to {len(x.shape)}")
+
     x = x.unsqueeze(unsqueeze_dim)
     repeats = [1] * len(x.shape)
     repeats[unsqueeze_dim] *= repeat_times
@@ -39,64 +42,67 @@ def unsqueeze_repeat(x: torch.Tensor, repeat_times: int, unsqueeze_dim: int = 0)
 
 
 def no_ebm_grad():
-    """
-    Decorator that temporarily disables gradients for the energy-based model.
-    
+    """Decorator that temporarily disables gradients for the energy-based model.
+
     This is used to prevent gradient computation through the EBM during certain operations
     while ensuring gradients are re-enabled afterward.
     """
+
     def ebm_disable_grad_wrapper(func: Callable):
         @wraps(func)
         def wrapper(*args, **kwargs):
             ebm = args[-1]
             if not isinstance(ebm, nn.Module):
-                raise TypeError('Make sure ebm is the last positional argument and is a nn.Module.')
-            
+                raise TypeError(
+                    "Make sure ebm is the last positional argument and is a nn.Module."
+                )
+
             ebm.requires_grad_(False)
             result = func(*args, **kwargs)
             ebm.requires_grad_(True)
             return result
+
         return wrapper
+
     return ebm_disable_grad_wrapper
 
 
 class StochasticOptimizer(ABC):
-    """
-    Base class for stochastic optimizers.
-    
+    """Base class for stochastic optimizers.
+
     This abstract class defines the interface for stochastic optimizers used in
     energy-based models for action sampling and inference.
     """
 
-    def __init__(self, device: str = 'cpu'):
-        """
-        Initialize the stochastic optimizer.
-        
+    def __init__(self, device: str = "cpu"):
+        """Initialize the stochastic optimizer.
+
         Args:
             device: The device to use for tensor operations
         """
         self.action_bounds: Optional[torch.Tensor] = None
         self.device = device
 
-    def _sample(self, obs: torch.Tensor, num_samples: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Draw action samples from the uniform random distribution and tile observations.
-        
+    def _sample(
+        self, obs: torch.Tensor, num_samples: int
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Draw action samples from the uniform random distribution and tile observations.
+
         Args:
             obs: Observation tensor of shape (B, O)
             num_samples: The number of samples to generate
-            
+
         Returns:
             A tuple containing:
                 - tiled_obs: Observations tiled to shape (B, N, O)
                 - action_samples: Action samples of shape (B, N, A)
-                
+
         Raises:
             RuntimeError: If action_bounds is not set
         """
         if self.action_bounds is None:
             raise RuntimeError("Action bounds must be set before sampling")
-            
+
         size = (obs.shape[0], num_samples, self.action_bounds.shape[1])
         low, high = self.action_bounds[0, :], self.action_bounds[1, :]
         action_samples = low + (high - low) * torch.rand(size, device=self.device)
@@ -105,15 +111,16 @@ class StochasticOptimizer(ABC):
 
     @staticmethod
     @torch.no_grad()
-    def _get_best_action_sample(obs: torch.Tensor, action_samples: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
-        """
-        Return one action for each batch with highest probability (lowest energy).
-        
+    def _get_best_action_sample(
+        obs: torch.Tensor, action_samples: torch.Tensor, ebm: nn.Module
+    ) -> torch.Tensor:
+        """Return one action for each batch with highest probability (lowest energy).
+
         Args:
             obs: Observation tensor of shape (B, O)
             action_samples: Action samples of shape (B, N, A)
             ebm: Energy-based model
-            
+
         Returns:
             Best action samples of shape (B, A)
         """
@@ -124,27 +131,32 @@ class StochasticOptimizer(ABC):
         probs = F.softmax(-1.0 * energies, dim=-1)
         # (B, )
         best_idxs = probs.argmax(dim=-1)
-        return action_samples[torch.arange(action_samples.size(0), device=action_samples.device), best_idxs]
+        return action_samples[
+            torch.arange(action_samples.size(0), device=action_samples.device),
+            best_idxs,
+        ]
 
     def set_action_bounds(self, action_bounds: np.ndarray) -> None:
-        """
-        Set action bounds calculated from the dataset statistics.
-        
+        """Set action bounds calculated from the dataset statistics.
+
         Args:
-            action_bounds: Array of shape (2, A), where action_bounds[0] is lower bound 
+            action_bounds: Array of shape (2, A), where action_bounds[0] is lower bound
                           and action_bounds[1] is upper bound
         """
-        self.action_bounds = torch.as_tensor(action_bounds, dtype=torch.float32, device=self.device)
+        self.action_bounds = torch.as_tensor(
+            action_bounds, dtype=torch.float32, device=self.device
+        )
 
     @abstractmethod
-    def sample(self, obs: torch.Tensor, ebm: nn.Module) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Create tiled observations and sample counter-negatives for InfoNCE loss.
-        
+    def sample(
+        self, obs: torch.Tensor, ebm: nn.Module
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Create tiled observations and sample counter-negatives for InfoNCE loss.
+
         Args:
             obs: Observations of shape (B, O)
             ebm: Energy-based model
-            
+
         Returns:
             A tuple containing:
                 - tiled_obs: Tiled observations of shape (B, N, O)
@@ -154,13 +166,12 @@ class StochasticOptimizer(ABC):
 
     @abstractmethod
     def infer(self, obs: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
-        """
-        Optimize for the best action conditioned on the current observation.
-        
+        """Optimize for the best action conditioned on the current observation.
+
         Args:
             obs: Observations of shape (B, O)
             ebm: Energy-based model
-            
+
         Returns:
             Best action samples of shape (B, A)
         """
@@ -168,9 +179,8 @@ class StochasticOptimizer(ABC):
 
 
 class DFO(StochasticOptimizer):
-    """
-    Derivative-Free Optimizer as described in Implicit Behavioral Cloning.
-    
+    """Derivative-Free Optimizer as described in Implicit Behavioral Cloning.
+
     Reference: https://arxiv.org/abs/2109.00137
     """
 
@@ -181,11 +191,10 @@ class DFO(StochasticOptimizer):
         iters: int = 3,
         train_samples: int = 8,
         inference_samples: int = 16384,
-        device: str = 'cpu',
+        device: str = "cpu",
     ):
-        """
-        Initialize the Derivative-Free Optimizer.
-        
+        """Initialize the Derivative-Free Optimizer.
+
         Args:
             noise_scale: Initial noise scale
             noise_shrink: Noise scale shrink rate
@@ -201,14 +210,15 @@ class DFO(StochasticOptimizer):
         self.train_samples = train_samples
         self.inference_samples = inference_samples
 
-    def sample(self, obs: torch.Tensor, ebm: nn.Module) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Sample actions from uniform distribution.
-        
+    def sample(
+        self, obs: torch.Tensor, ebm: nn.Module
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Sample actions from uniform distribution.
+
         Args:
             obs: Observations of shape (B, O)
             ebm: Energy-based model
-            
+
         Returns:
             A tuple containing:
                 - tiled_obs: Tiled observations of shape (B, N, O)
@@ -218,13 +228,12 @@ class DFO(StochasticOptimizer):
 
     @torch.no_grad()
     def infer(self, obs: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
-        """
-        Optimize for the best action using derivative-free optimization.
-        
+        """Optimize for the best action using derivative-free optimization.
+
         Args:
             obs: Observations of shape (B, O)
             ebm: Energy-based model
-            
+
         Returns:
             Best action samples of shape (B, A)
         """
@@ -242,11 +251,20 @@ class DFO(StochasticOptimizer):
 
             # Resample with replacement
             idxs = torch.multinomial(probs, self.inference_samples, replacement=True)
-            action_samples = action_samples[torch.arange(action_samples.size(0), device=action_samples.device).unsqueeze(-1), idxs]
+            action_samples = action_samples[
+                torch.arange(
+                    action_samples.size(0), device=action_samples.device
+                ).unsqueeze(-1),
+                idxs,
+            ]
 
             # Add noise and clip to target bounds
-            action_samples = action_samples + torch.randn_like(action_samples) * noise_scale
-            action_samples = action_samples.clamp(min=self.action_bounds[0, :], max=self.action_bounds[1, :])
+            action_samples = (
+                action_samples + torch.randn_like(action_samples) * noise_scale
+            )
+            action_samples = action_samples.clamp(
+                min=self.action_bounds[0, :], max=self.action_bounds[1, :]
+            )
 
             noise_scale *= self.noise_shrink
 
@@ -255,9 +273,8 @@ class DFO(StochasticOptimizer):
 
 
 class AutoRegressiveDFO(DFO):
-    """
-    AutoRegressive Derivative-Free Optimizer as described in Implicit Behavioral Cloning.
-    
+    """AutoRegressive Derivative-Free Optimizer as described in Implicit Behavioral Cloning.
+
     Reference: https://arxiv.org/abs/2109.00137
     """
 
@@ -268,11 +285,10 @@ class AutoRegressiveDFO(DFO):
         iters: int = 3,
         train_samples: int = 8,
         inference_samples: int = 4096,
-        device: str = 'cpu',
+        device: str = "cpu",
     ):
-        """
-        Initialize the AutoRegressive Derivative-Free Optimizer.
-        
+        """Initialize the AutoRegressive Derivative-Free Optimizer.
+
         Args:
             noise_scale: Initial noise scale
             noise_shrink: Noise scale shrink rate
@@ -281,17 +297,18 @@ class AutoRegressiveDFO(DFO):
             inference_samples: Number of samples for inference
             device: Device to use for tensor operations
         """
-        super().__init__(noise_scale, noise_shrink, iters, train_samples, inference_samples, device)
+        super().__init__(
+            noise_scale, noise_shrink, iters, train_samples, inference_samples, device
+        )
 
     @torch.no_grad()
     def infer(self, obs: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
-        """
-        Optimize for the best action using autoregressive derivative-free optimization.
-        
+        """Optimize for the best action using autoregressive derivative-free optimization.
+
         Args:
             obs: Observations of shape (B, O)
             ebm: Energy-based model
-            
+
         Returns:
             Best action samples of shape (B, A)
         """
@@ -311,11 +328,21 @@ class AutoRegressiveDFO(DFO):
                 probs = F.softmax(-1.0 * energies, dim=-1)
 
                 # Resample with replacement
-                idxs = torch.multinomial(probs, self.inference_samples, replacement=True)
-                action_samples = action_samples[torch.arange(action_samples.size(0), device=action_samples.device).unsqueeze(-1), idxs]
+                idxs = torch.multinomial(
+                    probs, self.inference_samples, replacement=True
+                )
+                action_samples = action_samples[
+                    torch.arange(
+                        action_samples.size(0), device=action_samples.device
+                    ).unsqueeze(-1),
+                    idxs,
+                ]
 
                 # Add noise and clip to target bounds
-                action_samples[..., j] = action_samples[..., j] + torch.randn_like(action_samples[..., j]) * noise_scale
+                action_samples[..., j] = (
+                    action_samples[..., j]
+                    + torch.randn_like(action_samples[..., j]) * noise_scale
+                )
                 action_samples[..., j] = action_samples[..., j].clamp(
                     min=self.action_bounds[0, j], max=self.action_bounds[1, j]
                 )
@@ -329,27 +356,28 @@ class AutoRegressiveDFO(DFO):
         probs = F.softmax(-1.0 * energies, dim=-1)
         # (B, )
         best_idxs = probs.argmax(dim=-1)
-        return action_samples[torch.arange(action_samples.size(0), device=action_samples.device), best_idxs]
+        return action_samples[
+            torch.arange(action_samples.size(0), device=action_samples.device),
+            best_idxs,
+        ]
 
 
 class MCMC(StochasticOptimizer):
-    """
-    MCMC method as stochastic optimizers in Implicit Behavioral Cloning.
-    
+    """MCMC method as stochastic optimizers in Implicit Behavioral Cloning.
+
     Reference: https://arxiv.org/abs/2109.00137
     """
 
     class BaseScheduler(ABC):
         """Base class for learning rate schedulers."""
-        
+
         @abstractmethod
         def get_rate(self, index: int) -> float:
-            """
-            Get learning rate for the given index.
-            
+            """Get learning rate for the given index.
+
             Args:
                 index: Current iteration index
-                
+
             Returns:
                 Learning rate value
             """
@@ -357,11 +385,10 @@ class MCMC(StochasticOptimizer):
 
     class ExponentialScheduler(BaseScheduler):
         """Exponential learning rate scheduler for Langevin sampler."""
-        
+
         def __init__(self, init: float, decay: float):
-            """
-            Initialize the ExponentialScheduler.
-            
+            """Initialize the ExponentialScheduler.
+
             Args:
                 init: Initial learning rate
                 decay: Decay rate
@@ -370,12 +397,11 @@ class MCMC(StochasticOptimizer):
             self._latest_lr = init
 
         def get_rate(self, index: int) -> float:
-            """
-            Get learning rate. Assumes calling sequentially.
-            
+            """Get learning rate. Assumes calling sequentially.
+
             Args:
                 index: Current iteration index (unused)
-                
+
             Returns:
                 Current learning rate
             """
@@ -385,11 +411,10 @@ class MCMC(StochasticOptimizer):
 
     class PolynomialScheduler(BaseScheduler):
         """Polynomial learning rate scheduler for Langevin sampler."""
-        
+
         def __init__(self, init: float, final: float, power: float, num_steps: int):
-            """
-            Initialize the PolynomialScheduler.
-            
+            """Initialize the PolynomialScheduler.
+
             Args:
                 init: Initial learning rate
                 final: Final learning rate
@@ -402,19 +427,19 @@ class MCMC(StochasticOptimizer):
             self._num_steps = num_steps
 
         def get_rate(self, index: int) -> float:
-            """
-            Get learning rate for the given index.
-            
+            """Get learning rate for the given index.
+
             Args:
                 index: Current iteration index
-                
+
             Returns:
                 Current learning rate
             """
             if index == -1:
                 return self._init
             return (
-                (self._init - self._final) * ((1 - (float(index) / float(self._num_steps - 1))) ** (self._power))
+                (self._init - self._final)
+                * ((1 - (float(index) / float(self._num_steps - 1))) ** (self._power))
             ) + self._final
 
     def __init__(
@@ -426,19 +451,18 @@ class MCMC(StochasticOptimizer):
         stepsize_scheduler: Dict[str, float] = None,
         optimize_again: bool = True,
         again_stepsize_scheduler: Dict[str, float] = None,
-        device: str = 'cpu',
+        device: str = "cpu",
         noise_scale: float = 0.1,
         grad_clip: Optional[float] = 1.0,
         delta_action_clip: float = 0.5,
         add_grad_penalty: bool = True,
-        grad_norm_type: str = 'inf',
+        grad_norm_type: str = "inf",
         grad_margin: float = 1.0,
         grad_loss_weight: float = 1.0,
         **kwargs,
     ):
-        """
-        Initialize the MCMC optimizer.
-        
+        """Initialize the MCMC optimizer.
+
         Args:
             iters: Number of iterations
             use_langevin_negative_samples: Whether to use Langevin sampler
@@ -462,15 +486,15 @@ class MCMC(StochasticOptimizer):
         self.train_samples = train_samples
         self.inference_samples = inference_samples
         self.stepsize_scheduler = stepsize_scheduler or {
-            'init': 0.5,
-            'final': 1e-5,
-            'power': 2.0,
+            "init": 0.5,
+            "final": 1e-5,
+            "power": 2.0,
         }
         self.optimize_again = optimize_again
         self.again_stepsize_scheduler = again_stepsize_scheduler or {
-            'init': 1e-5,
-            'final': 1e-5,
-            'power': 2.0,
+            "init": 1e-5,
+            "final": 1e-5,
+            "power": 2.0,
         }
         self.noise_scale = noise_scale
         self.grad_clip = grad_clip
@@ -482,20 +506,19 @@ class MCMC(StochasticOptimizer):
 
     @staticmethod
     def _gradient_wrt_act(
-            obs: torch.Tensor,
-            action: torch.Tensor,
-            ebm: nn.Module,
-            create_graph: bool = False,
+        obs: torch.Tensor,
+        action: torch.Tensor,
+        ebm: nn.Module,
+        create_graph: bool = False,
     ) -> torch.Tensor:
-        """
-        Calculate gradient with respect to action.
-        
+        """Calculate gradient with respect to action.
+
         Args:
             obs: Observations of shape (B, N, O)
             action: Actions of shape (B, N, A)
             ebm: Energy-based model
             create_graph: Whether to create computation graph for higher-order derivatives
-            
+
         Returns:
             Gradient with respect to action of shape (B, N, A)
         """
@@ -510,31 +533,34 @@ class MCMC(StochasticOptimizer):
         action.requires_grad_(False)
         return grad
 
-    def grad_penalty(self, obs: torch.Tensor, action: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
-        """
-        Calculate gradient penalty.
-        
+    def grad_penalty(
+        self, obs: torch.Tensor, action: torch.Tensor, ebm: nn.Module
+    ) -> torch.Tensor:
+        """Calculate gradient penalty.
+
         Args:
             obs: Observations of shape (B, N+1, O)
             action: Actions of shape (B, N+1, A)
             ebm: Energy-based model
-            
+
         Returns:
             Gradient penalty loss of shape (B,)
         """
         if not self.add_grad_penalty:
             return torch.tensor(0.0, device=self.device)
-            
+
         # (B, N+1, A), this gradient is differentiable w.r.t model parameters
         de_dact = self._gradient_wrt_act(obs, action, ebm, create_graph=True)
 
-        def compute_grad_norm(grad_norm_type: str, de_dact: torch.Tensor) -> torch.Tensor:
+        def compute_grad_norm(
+            grad_norm_type: str, de_dact: torch.Tensor
+        ) -> torch.Tensor:
             # de_deact: B, N+1, A
             # return:   B, N+1
             grad_norm_type_to_ord = {
-                '1': 1,
-                '2': 2,
-                'inf': float('inf'),
+                "1": 1,
+                "2": 2,
+                "inf": float("inf"),
             }
             ord = grad_norm_type_to_ord[grad_norm_type]
             return torch.linalg.norm(de_dact, ord, dim=-1)
@@ -542,23 +568,24 @@ class MCMC(StochasticOptimizer):
         # (B, N+1)
         grad_norms = compute_grad_norm(self.grad_norm_type, de_dact)
         grad_norms = grad_norms - self.grad_margin
-        grad_norms = grad_norms.clamp(min=0., max=1e10)
+        grad_norms = grad_norms.clamp(min=0.0, max=1e10)
         grad_norms = grad_norms.pow(2)
 
         grad_loss = grad_norms.mean()
         return grad_loss * self.grad_loss_weight
 
     @no_ebm_grad()
-    def _langevin_step(self, obs: torch.Tensor, action: torch.Tensor, stepsize: float, ebm: nn.Module) -> torch.Tensor:
-        """
-        Run one Langevin MCMC step.
-        
+    def _langevin_step(
+        self, obs: torch.Tensor, action: torch.Tensor, stepsize: float, ebm: nn.Module
+    ) -> torch.Tensor:
+        """Run one Langevin MCMC step.
+
         Args:
             obs: Observations of shape (B, N, O)
             action: Actions of shape (B, N, A)
             stepsize: Step size
             ebm: Energy-based model
-            
+
         Returns:
             Updated actions of shape (B, N, A)
         """
@@ -569,10 +596,17 @@ class MCMC(StochasticOptimizer):
             de_dact = de_dact.clamp(min=-self.grad_clip, max=self.grad_clip)
 
         gradient_scale = 0.5
-        de_dact = (gradient_scale * l_lambda * de_dact + torch.randn_like(de_dact) * l_lambda * self.noise_scale)
+        de_dact = (
+            gradient_scale * l_lambda * de_dact
+            + torch.randn_like(de_dact) * l_lambda * self.noise_scale
+        )
 
         delta_action = stepsize * de_dact
-        delta_action_clip = self.delta_action_clip * 0.5 * (self.action_bounds[1] - self.action_bounds[0])
+        delta_action_clip = (
+            self.delta_action_clip
+            * 0.5
+            * (self.action_bounds[1] - self.action_bounds[0])
+        )
         delta_action = delta_action.clamp(min=-delta_action_clip, max=delta_action_clip)
 
         action = action - delta_action
@@ -582,28 +616,27 @@ class MCMC(StochasticOptimizer):
 
     @no_ebm_grad()
     def _langevin_action_given_obs(
-            self,
-            obs: torch.Tensor,
-            action: torch.Tensor,
-            ebm: nn.Module,
-            scheduler: Optional[BaseScheduler] = None
+        self,
+        obs: torch.Tensor,
+        action: torch.Tensor,
+        ebm: nn.Module,
+        scheduler: Optional[BaseScheduler] = None,
     ) -> torch.Tensor:
-        """
-        Run Langevin MCMC for `self.iters` steps.
-        
+        """Run Langevin MCMC for `self.iters` steps.
+
         Args:
             obs: Observations of shape (B, N, O)
             action: Actions of shape (B, N, A)
             ebm: Energy-based model
             scheduler: Learning rate scheduler
-            
+
         Returns:
             Updated actions of shape (B, N, A)
         """
         if scheduler is None:
-            self.stepsize_scheduler['num_steps'] = self.iters
+            self.stepsize_scheduler["num_steps"] = self.iters
             scheduler = self.PolynomialScheduler(**self.stepsize_scheduler)
-            
+
         stepsize = scheduler.get_rate(-1)
         for i in range(self.iters):
             action = self._langevin_step(obs, action, stepsize, ebm)
@@ -611,14 +644,15 @@ class MCMC(StochasticOptimizer):
         return action
 
     @no_ebm_grad()
-    def sample(self, obs: torch.Tensor, ebm: nn.Module) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Create tiled observations and sample counter-negatives for InfoNCE loss.
-        
+    def sample(
+        self, obs: torch.Tensor, ebm: nn.Module
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Create tiled observations and sample counter-negatives for InfoNCE loss.
+
         Args:
             obs: Observations of shape (B, O)
             ebm: Energy-based model
-            
+
         Returns:
             A tuple containing:
                 - tiled_obs: Tiled observations of shape (B, N, O)
@@ -627,19 +661,20 @@ class MCMC(StochasticOptimizer):
         obs, uniform_action_samples = self._sample(obs, self.train_samples)
         if not self.use_langevin_negative_samples:
             return obs, uniform_action_samples
-            
-        langevin_action_samples = self._langevin_action_given_obs(obs, uniform_action_samples, ebm)
+
+        langevin_action_samples = self._langevin_action_given_obs(
+            obs, uniform_action_samples, ebm
+        )
         return obs, langevin_action_samples
 
     @no_ebm_grad()
     def infer(self, obs: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
-        """
-        Optimize for the best action using MCMC.
-        
+        """Optimize for the best action using MCMC.
+
         Args:
             obs: Observations of shape (B, O)
             ebm: Energy-based model
-            
+
         Returns:
             Best action samples of shape (B, A)
         """
@@ -653,7 +688,7 @@ class MCMC(StochasticOptimizer):
 
         # Run a second optimization, a trick for more precise inference
         if self.optimize_again:
-            self.again_stepsize_scheduler['num_steps'] = self.iters
+            self.again_stepsize_scheduler["num_steps"] = self.iters
             action_samples = self._langevin_action_given_obs(
                 obs,
                 action_samples,

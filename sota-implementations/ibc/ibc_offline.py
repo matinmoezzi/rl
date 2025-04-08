@@ -1,7 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-#
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
 """IBC Example.
 
 This is a self-contained example of an offline IBC training script.
@@ -14,10 +10,10 @@ from __future__ import annotations
 import warnings
 
 import hydra
-from omegaconf import DictConfig
 import numpy as np
 import torch
 import tqdm
+from omegaconf import DictConfig
 from tensordict.nn import CudaGraphModule
 from torchrl._utils import timeit
 from torchrl.envs import set_gym_backend
@@ -25,13 +21,13 @@ from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.record.loggers import generate_exp_name, get_logger
 from utils import (
     dump_video,
+    EBMPolicy,
     log_metrics,
     make_environment,
     make_ibc_model,
     make_ibc_optimizer,
     make_loss,
     make_offline_replay_buffer,
-    EBMPolicy,
 )
 
 torch.set_float32_matmul_precision("high")
@@ -137,11 +133,11 @@ def main(cfg: DictConfig):  # noqa: F821
         # evaluation
         metrics_to_log = loss_info.to_dict()
         if (i + 1) % evaluation_interval == 0:
-            with set_exploration_type(
-                ExplorationType.DETERMINISTIC
-            ), timeit("eval"):
+            with set_exploration_type(ExplorationType.DETERMINISTIC), timeit("eval"):
                 eval_td = eval_env.rollout(
-                    max_steps=eval_steps, policy=EBMPolicy(model, stochastic_optimizer), auto_cast_to_device=True
+                    max_steps=eval_steps,
+                    policy=EBMPolicy(model, stochastic_optimizer),
+                    auto_cast_to_device=True,
                 )
                 eval_env.apply(dump_video)
             eval_reward = eval_td["next", "reward"].sum(1).mean().item()

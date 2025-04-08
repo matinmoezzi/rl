@@ -422,6 +422,10 @@ Planners
     CEMPlanner
     MPCPlannerBase
     MPPIPlanner
+    StochasticOptimizer
+    DFO
+    MCMC
+    AutoRegressiveDFO
 
 
 Distributions

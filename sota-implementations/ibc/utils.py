@@ -1,16 +1,14 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-#
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
 from __future__ import annotations
 
 import functools
-from typing import Union
+
+import numpy as np
 
 import torch
 import torch.nn
 import torch.optim
-import numpy as np
+from tensordict.nn import TensorDictModule
+from tensordict.tensordict import TensorDictBase
 
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import (
@@ -34,15 +32,11 @@ from torchrl.envs import (
 )
 
 from torchrl.envs.libs.gym import GymEnv, set_gym_backend
-from torchrl.modules import (
-    MLP,
-)
-from torchrl.modules.planners.stochastic_optimizers import DFO, MCMC, AutoRegressiveDFO
+from torchrl.modules import MLP
+from torchrl.modules.planners.stochastic_optimizers import AutoRegressiveDFO, DFO, MCMC
 from torchrl.objectives.ibc import IBCLoss
 from torchrl.record import VideoRecorder
 from torchrl.trainers.helpers.models import ACTIVATIONS
-from tensordict.nn import TensorDictModule
-from tensordict.tensordict import TensorDictBase
 
 
 # ====================================================================
@@ -217,15 +211,20 @@ def make_offline_replay_buffer(rb_cfg):
 
 class EBMPolicy(TensorDictModule):
     """Policy module that uses EBM network and stochastic optimizer for inference.
-    
+
     This module takes observations as input and returns the best action using
     the stochastic optimizer's inference method.
-    
+
     Args:
         ebm_network (TensorDictModule): The energy-based model network
         optimizer (Union[MCMC, AutoRegressiveDFO, DFO]): The stochastic optimizer
     """
-    def __init__(self, ebm_network: TensorDictModule, optimizer: Union[MCMC, AutoRegressiveDFO, DFO]):
+
+    def __init__(
+        self,
+        ebm_network: TensorDictModule,
+        optimizer: MCMC | AutoRegressiveDFO | DFO,
+    ):
         super().__init__(
             module=self,
             in_keys=["observation"],
@@ -236,10 +235,10 @@ class EBMPolicy(TensorDictModule):
 
     def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
         """Forward pass that infers the best action for given observations.
-        
+
         Args:
             tensordict (TensorDictBase): Input tensordict containing observations
-            
+
         Returns:
             TensorDictBase: Tensordict with inferred actions
         """
@@ -283,7 +282,9 @@ def make_ibc_model(cfg, train_env, eval_env, device="cpu"):
 
     # Set action bounds from environment spec
     if hasattr(action_spec.space, "low") and hasattr(action_spec.space, "high"):
-        action_bounds = np.stack([action_spec.space.low, action_spec.space.high], axis=0)
+        action_bounds = np.stack(
+            [action_spec.space.low, action_spec.space.high], axis=0
+        )
         optimizer.set_action_bounds(action_bounds)
     else:
         raise ValueError("Action spec must have low and high bounds for the optimizer")

@@ -69,6 +69,7 @@ from torchrl.modules.models.model_based import (
     RSSMRollout,
 )
 from torchrl.modules.models.models import MLP
+from torchrl.modules.planners.stochastic_optimizers import AutoRegressiveDFO, DFO, MCMC
 from torchrl.modules.tensordict_module.actors import (
     Actor,
     ActorCriticOperator,
@@ -77,6 +78,7 @@ from torchrl.modules.tensordict_module.actors import (
     QValueModule,
     ValueOperator,
 )
+from torchrl.modules.tensordict_module.common import SafeModule
 from torchrl.objectives import (
     A2CLoss,
     ClipPPOLoss,
@@ -93,6 +95,7 @@ from torchrl.objectives import (
     DreamerValueLoss,
     DTLoss,
     GAILLoss,
+    IBCLoss,
     IQLLoss,
     KLPENPPOLoss,
     OnlineDTLoss,
@@ -101,11 +104,8 @@ from torchrl.objectives import (
     SACLoss,
     TD3BCLoss,
     TD3Loss,
-    IBCLoss
 )
-from torchrl.modules.planners.stochastic_optimizers import DFO, MCMC, AutoRegressiveDFO
 from torchrl.objectives.common import add_random_module, LossModule
-from torchrl.modules.tensordict_module.common import SafeModule
 from torchrl.objectives.deprecated import DoubleREDQLoss_deprecated, REDQLoss_deprecated
 from torchrl.objectives.redq import REDQLoss
 from torchrl.objectives.reinforce import ReinforceLoss
@@ -2914,9 +2914,7 @@ class TestIBC(LossModuleTestBase):
             def __init__(self, obs_dim, action_dim):
                 super().__init__()
                 self.net = nn.Sequential(
-                    nn.Linear(obs_dim + action_dim, 64),
-                    nn.ReLU(),
-                    nn.Linear(64, 1)
+                    nn.Linear(obs_dim + action_dim, 64), nn.ReLU(), nn.Linear(64, 1)
                 )
 
             def forward(self, obs, action):
@@ -2988,9 +2986,7 @@ class TestIBC(LossModuleTestBase):
         assert loss["loss_ebm"].shape == torch.Size([])
 
     @pytest.mark.parametrize("device", get_default_devices())
-    def test_ibc_notensordict(
-        self, device
-    ):
+    def test_ibc_notensordict(self, device):
         torch.manual_seed(self.seed)
         ebm = self._create_mock_ebm(device=device)
         optimizer = DFO()
@@ -3041,22 +3037,18 @@ class TestIBC(LossModuleTestBase):
     def test_ibc_custom_keys(self, device):
         torch.manual_seed(self.seed)
         ebm = self._create_mock_ebm(
-            device=device,
-            in_keys=["obs", "act"],
-            out_keys=["energy_val"]
+            device=device, in_keys=["obs", "act"], out_keys=["energy_val"]
         )
         optimizer = DFO()
         td = self._create_mock_data_ibc(
-            device=device,
-            action_key="act",
-            observation_key="obs"
+            device=device, action_key="act", observation_key="obs"
         )
         loss_fn = IBCLoss(
             ebm,
             optimizer,
             observation_key="obs",
             action_key="act",
-            energy_key="energy_val"
+            energy_key="energy_val",
         )
         loss = loss_fn(td)
         assert "loss_ebm" in loss.keys()

@@ -1,21 +1,15 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-#
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
 
 import torch
 import torch.nn.functional as F
-from tensordict import TensorDictBase
+from tensordict import TensorDict, TensorDictBase
+from tensordict.nn import TensorDictModule
 from tensordict.utils import NestedKey
 
-from torchrl.modules.planners.stochastic_optimizers import MCMC, AutoRegressiveDFO, DFO
+from torchrl.modules.planners.stochastic_optimizers import AutoRegressiveDFO, DFO, MCMC
 from torchrl.objectives.common import LossModule
-from tensordict.nn import TensorDictModule
-from tensordict import TensorDict
 
 
 class IBCLoss(LossModule):
@@ -99,7 +93,7 @@ class IBCLoss(LossModule):
     ]
 
     ebm_network: TensorDictModule
-    optimizer: Union[MCMC, AutoRegressiveDFO, DFO]
+    optimizer: MCMC | AutoRegressiveDFO | DFO
     observation_key: str
     action_key: str
     energy_key: str
@@ -107,7 +101,7 @@ class IBCLoss(LossModule):
     def __init__(
         self,
         ebm_network: TensorDictModule,
-        optimizer: Union[MCMC, AutoRegressiveDFO, DFO],
+        optimizer: MCMC | AutoRegressiveDFO | DFO,
         observation_key: str = "observation",
         action_key: str = "action",
         energy_key: str = "energy",
@@ -183,7 +177,9 @@ class IBCLoss(LossModule):
         # Handle different optimizer types
         if isinstance(self.optimizer, AutoRegressiveDFO):
             # autoregressive case
-            ground_truth = torch.unsqueeze(ground_truth, -1).repeat(1, 1, logits.shape[-1])
+            ground_truth = torch.unsqueeze(ground_truth, -1).repeat(
+                1, 1, logits.shape[-1]
+            )
         loss = F.cross_entropy(logits, ground_truth)
         loss_dict = {"loss_ebm": loss}
 

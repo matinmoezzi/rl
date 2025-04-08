@@ -16,6 +16,7 @@ from torchrl.objectives.dreamer import (
     DreamerValueLoss,
 )
 from torchrl.objectives.gail import GAILLoss
+from torchrl.objectives.ibc import IBCLoss
 from torchrl.objectives.iql import DiscreteIQLLoss, IQLLoss
 from torchrl.objectives.multiagent import QMixerLoss
 from torchrl.objectives.ppo import ClipPPOLoss, KLPENPPOLoss, PPOLoss
@@ -24,7 +25,6 @@ from torchrl.objectives.reinforce import ReinforceLoss
 from torchrl.objectives.sac import DiscreteSACLoss, SACLoss
 from torchrl.objectives.td3 import TD3Loss
 from torchrl.objectives.td3_bc import TD3BCLoss
-from torchrl.objectives.ibc import IBCLoss
 from torchrl.objectives.utils import (
     default_value_kwargs,
     distance_loss,
