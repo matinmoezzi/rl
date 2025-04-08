@@ -1,0 +1,49 @@
+# env and task
+env:
+  # name: Hopper-v4
+  name: HalfCheetah-v4
+  task: ""
+  exp_name: ibc_${replay_buffer.dataset}
+  n_samples_stats: 1000
+  seed: 0
+  backend: gymnasium
+
+# logger
+logger:
+  backend: tensorboard
+  project_name: torchrl_example_ibc
+  exp_name: ibc_${replay_buffer.dataset}
+  group_name: null
+  eval_iter: 1000
+  eval_steps: 500
+  mode: online
+  eval_envs: 1
+  video: True
+
+# replay buffer
+replay_buffer:
+  backend: d4rl
+  dataset: halfcheetah-expert-v2
+  # dataset: hopper-medium-expert-v2
+  batch_size: 256
+
+# optimization
+optim:
+  device: cpu
+  lr: 4e-5
+  weight_decay: 0.0
+  gradient_steps: 50000
+
+# network
+model:
+  hidden_sizes: [512,512, 512,512]
+  activation: relu
+
+  # stochastic optimizer hyperparameters
+  optimizer:
+    type: mcmc # dfo, autoregressive_dfo
+
+compile:
+  compile: False
+  compile_mode:
+  cudagraphs: False

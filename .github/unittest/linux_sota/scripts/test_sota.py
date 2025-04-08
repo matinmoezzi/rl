@@ -179,6 +179,10 @@ commands = {
   logger.mode=offline \
   logger.backend=
 """,
+    "ibc_offline": """python sota-implementations/ibc/ibc_offline.py \
+  logger.mode=offline \
+  logger.backend=
+""",
     "cql_online": """python sota-implementations/cql/cql_online.py \
   collector.total_frames=48 \
   optim.batch_size=10 \

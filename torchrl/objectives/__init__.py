@@ -24,6 +24,7 @@ from torchrl.objectives.reinforce import ReinforceLoss
 from torchrl.objectives.sac import DiscreteSACLoss, SACLoss
 from torchrl.objectives.td3 import TD3Loss
 from torchrl.objectives.td3_bc import TD3BCLoss
+from torchrl.objectives.ibc import IBCLoss
 from torchrl.objectives.utils import (
     default_value_kwargs,
     distance_loss,
@@ -66,6 +67,7 @@ __all__ = [
     "SoftUpdate",
     "TD3BCLoss",
     "TD3Loss",
+    "IBCLoss",
     "TargetNetUpdater",
     "ValueEstimators",
     "add_random_module",

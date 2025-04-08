@@ -100,8 +100,11 @@ from torchrl.objectives import (
     SACLoss,
     TD3BCLoss,
     TD3Loss,
+    IBCLoss
 )
+from torchrl.modules.planners.stochastic_optimizers import DFO, MCMC, AutoRegressiveDFO
 from torchrl.objectives.common import add_random_module, LossModule
+from torchrl.modules.tensordict_module.common import SafeModule
 from torchrl.objectives.deprecated import DoubleREDQLoss_deprecated, REDQLoss_deprecated
 from torchrl.objectives.redq import REDQLoss
 from torchrl.objectives.reinforce import ReinforceLoss
@@ -2886,6 +2889,198 @@ class TestTD3(LossModuleTestBase):
                 if not key.startswith("loss"):
                     continue
                 assert loss[key].shape == torch.Size([])
+
+
+class TestIBC(LossModuleTestBase):
+    seed = 0
+
+    def _create_mock_ebm(
+        self,
+        batch=2,
+        obs_dim=3,
+        action_dim=4,
+        device="cpu",
+        in_keys=None,
+        out_keys=None,
+    ):
+        # EBM network
+        class EBM(nn.Module):
+            def __init__(self, obs_dim, action_dim):
+                super().__init__()
+                self.net = nn.Sequential(
+                    nn.Linear(obs_dim + action_dim, 64),
+                    nn.ReLU(),
+                    nn.Linear(64, 1)
+                )
+
+            def forward(self, obs, action):
+                x = torch.cat([obs, action], dim=-1)
+                return self.net(x).squeeze(-1)
+
+        if in_keys is None:
+            in_keys = ["observation", "action"]
+        if out_keys is None:
+            out_keys = ["energy"]
+
+        ebm = EBM(obs_dim, action_dim)
+        ebm = SafeModule(ebm, in_keys=in_keys, out_keys=out_keys)
+        return ebm.to(device)
+
+    def _create_mock_data_ibc(
+        self,
+        batch=8,
+        obs_dim=3,
+        action_dim=4,
+        device="cpu",
+        action_key="action",
+        observation_key="observation",
+        reward_key="reward",
+        done_key="done",
+        terminated_key="terminated",
+    ):
+        # create a tensordict
+        obs = torch.randn(batch, obs_dim, device=device)
+        next_obs = torch.randn(batch, obs_dim, device=device)
+        action = torch.randn(batch, action_dim, device=device).clamp(-1, 1)
+        reward = torch.randn(batch, 1, device=device)
+        done = torch.zeros(batch, 1, dtype=torch.bool, device=device)
+        terminated = torch.zeros(batch, 1, dtype=torch.bool, device=device)
+        td = TensorDict(
+            batch_size=(batch,),
+            source={
+                observation_key: obs,
+                "next": {
+                    observation_key: next_obs,
+                    done_key: done,
+                    terminated_key: terminated,
+                    reward_key: reward,
+                },
+                action_key: action,
+            },
+            device=device,
+        )
+        return td
+
+    def test_reset_parameters_recursive(self):
+        ebm = self._create_mock_ebm()
+        optimizer = DFO()
+        loss_fn = IBCLoss(ebm, optimizer)
+        self.reset_parameters_recursive_test(loss_fn)
+
+    @pytest.mark.parametrize("device", get_default_devices())
+    def test_ibc(
+        self,
+        device,
+    ):
+        torch.manual_seed(self.seed)
+        ebm = self._create_mock_ebm(device=device)
+        optimizer = DFO()
+        td = self._create_mock_data_ibc(device=device)
+        loss_fn = IBCLoss(ebm, optimizer)
+        loss = loss_fn(td)
+        assert "loss_ebm" in loss.keys()
+        assert loss["loss_ebm"].shape == torch.Size([])
+
+    @pytest.mark.parametrize("device", get_default_devices())
+    def test_ibc_notensordict(
+        self, device
+    ):
+        torch.manual_seed(self.seed)
+        ebm = self._create_mock_ebm(device=device)
+        optimizer = DFO()
+        td = self._create_mock_data_ibc(device=device)
+        loss_fn = IBCLoss(ebm, optimizer)
+
+        kwargs = {
+            "observation": td.get("observation"),
+            "action": td.get("action"),
+        }
+        loss_val = loss_fn(**kwargs)
+        assert isinstance(loss_val, torch.Tensor)
+        assert loss_val.shape == torch.Size([])
+
+    @pytest.mark.parametrize("reduction", [None, "none", "mean", "sum"])
+    def test_ibc_reduction(self, reduction):
+        torch.manual_seed(self.seed)
+        device = (
+            torch.device("cpu")
+            if torch.cuda.device_count() == 0
+            else torch.device("cuda")
+        )
+        ebm = self._create_mock_ebm(device=device)
+        optimizer = DFO()
+        td = self._create_mock_data_ibc(device=device)
+        loss_fn = IBCLoss(ebm, optimizer, reduction=reduction)
+        loss = loss_fn(td)
+        if reduction == "none":
+            assert loss["loss_ebm"].shape == td.shape
+        else:
+            assert loss["loss_ebm"].shape == torch.Size([])
+
+    @pytest.mark.parametrize("device", get_default_devices())
+    @pytest.mark.parametrize("optimizer_class", [DFO, MCMC, AutoRegressiveDFO])
+    def test_ibc_optimizers(self, device, optimizer_class):
+        torch.manual_seed(self.seed)
+        ebm = self._create_mock_ebm(device=device)
+        optimizer = optimizer_class()
+        td = self._create_mock_data_ibc(device=device)
+        loss_fn = IBCLoss(ebm, optimizer)
+        loss = loss_fn(td)
+        assert "loss_ebm" in loss.keys()
+        if isinstance(optimizer, MCMC):
+            assert "grad_penalty" in loss.keys()
+        assert loss["loss_ebm"].shape == torch.Size([])
+
+    @pytest.mark.parametrize("device", get_default_devices())
+    def test_ibc_custom_keys(self, device):
+        torch.manual_seed(self.seed)
+        ebm = self._create_mock_ebm(
+            device=device,
+            in_keys=["obs", "act"],
+            out_keys=["energy_val"]
+        )
+        optimizer = DFO()
+        td = self._create_mock_data_ibc(
+            device=device,
+            action_key="act",
+            observation_key="obs"
+        )
+        loss_fn = IBCLoss(
+            ebm,
+            optimizer,
+            observation_key="obs",
+            action_key="act",
+            energy_key="energy_val"
+        )
+        loss = loss_fn(td)
+        assert "loss_ebm" in loss.keys()
+        assert loss["loss_ebm"].shape == torch.Size([])
+
+    @pytest.mark.parametrize("device", get_default_devices())
+    def test_ibc_mcmc_grad_penalty(self, device):
+        torch.manual_seed(self.seed)
+        ebm = self._create_mock_ebm(device=device)
+        optimizer = MCMC()
+        td = self._create_mock_data_ibc(device=device)
+        loss_fn = IBCLoss(ebm, optimizer)
+        loss = loss_fn(td)
+        assert "loss_ebm" in loss.keys()
+        assert "grad_penalty" in loss.keys()
+        assert loss["loss_ebm"].shape == torch.Size([])
+        assert loss["grad_penalty"].shape == torch.Size([])
+        # Check that grad penalty is positive
+        assert (loss["grad_penalty"] >= 0).all()
+
+    @pytest.mark.parametrize("device", get_default_devices())
+    def test_ibc_autoregressive(self, device):
+        torch.manual_seed(self.seed)
+        ebm = self._create_mock_ebm(device=device)
+        optimizer = AutoRegressiveDFO()
+        td = self._create_mock_data_ibc(device=device)
+        loss_fn = IBCLoss(ebm, optimizer)
+        loss = loss_fn(td)
+        assert "loss_ebm" in loss.keys()
+        assert loss["loss_ebm"].shape == torch.Size([])
 
 
 class TestTD3BC(LossModuleTestBase):

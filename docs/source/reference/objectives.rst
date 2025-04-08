@@ -170,6 +170,15 @@ IQL
     IQLLoss
     DiscreteIQLLoss
 
+IBC
+---
+
+.. autosummary::
+    :toctree: generated/
+    :template: rl_template_noinherit.rst
+
+    IBCLoss
+
 CQL
 ---
 
