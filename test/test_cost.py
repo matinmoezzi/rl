@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import functools
+import importlib.util
 import itertools
 import operator
 import os
@@ -172,6 +173,8 @@ except ImportError as err:
     _has_functorch = False
     FUNCTORCH_ERR = str(err)
 
+_has_transformers = bool(importlib.util.find_spec("transformers"))
+
 TORCH_VERSION = version.parse(version.parse(torch.__version__).base_version)
 IS_WINDOWS = sys.platform == "win32"
 
@@ -183,6 +186,9 @@ pytestmark = [
     ),
     pytest.mark.filterwarnings(
         "ignore:dep_util is Deprecated. Use functions from setuptools instead"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:The PyTorch API of nested tensors is in prototype"
     ),
 ]
 
@@ -8190,6 +8196,7 @@ class TestDiscreteCQL(LossModuleTestBase):
                 assert loss[key].shape == torch.Size([])
 
 
+@pytest.mark.skipif(not _has_transformers, reason="requires transformers lib")
 class TestPPO(LossModuleTestBase):
     seed = 0
 
@@ -13881,7 +13888,8 @@ def test_updater(mode, value_network_update_interval, device, dtype):
         assert target_val.device == source_val.device, key
         if target_val.dtype == torch.long:
             continue
-        d0 += (target_val - source_val).norm().item()
+        with torch.no_grad():
+            d0 += (target_val - source_val).norm().item()
 
     assert d0 > 0
     if mode == "hard":
@@ -13895,7 +13903,8 @@ def test_updater(mode, value_network_update_interval, device, dtype):
                 target_val = upd._targets[key]
                 if target_val.dtype == torch.long:
                     continue
-                d1 += (target_val - source_val).norm().item()
+                with torch.no_grad():
+                    d1 += (target_val - source_val).norm().item()
 
             assert d1 == d0, i
             assert upd.counter == i
@@ -13910,7 +13919,8 @@ def test_updater(mode, value_network_update_interval, device, dtype):
             target_val = upd._targets[key]
             if target_val.dtype == torch.long:
                 continue
-            d1 += (target_val - source_val).norm().item()
+            with torch.no_grad():
+                d1 += (target_val - source_val).norm().item()
         assert d1 < d0
 
     elif mode == "soft":
@@ -13923,7 +13933,8 @@ def test_updater(mode, value_network_update_interval, device, dtype):
             target_val = upd._targets[key]
             if target_val.dtype == torch.long:
                 continue
-            d1 += (target_val - source_val).norm().item()
+            with torch.no_grad():
+                d1 += (target_val - source_val).norm().item()
         assert d1 < d0
     with pytest.warns(UserWarning, match="already"):
         upd.init_()
@@ -13936,7 +13947,8 @@ def test_updater(mode, value_network_update_interval, device, dtype):
         target_val = upd._targets[key]
         if target_val.dtype == torch.long:
             continue
-        d2 += (target_val - source_val).norm().item()
+        with torch.no_grad():
+            d2 += (target_val - source_val).norm().item()
     assert d2 < 1e-6
 
 
@@ -16859,21 +16871,28 @@ def test_loss_exploration():
 
 
 class TestPPO4LLMs:
+    @pytest.mark.skipif(
+        not _has_transformers, reason="transformers lib required to test PPO with LLMs"
+    )
     @set_capture_non_tensor_stack(False)
     @pytest.mark.parametrize("from_text", [True, False])
     def test_hf(self, from_text):
         from torchrl.envs import LLMEnv, Transform
-        from torchrl.modules import from_hf_transformers
+        from torchrl.modules import TransformersWrapper
         from transformers import AutoTokenizer, OPTConfig, OPTForCausalLM
 
         tokenizer = AutoTokenizer.from_pretrained("facebook/opt-125m")
         tokenizer.pad_token = tokenizer.eos_token
 
-        model = OPTForCausalLM(OPTConfig())
-        policy_inference = from_hf_transformers(
-            model, tokenizer=tokenizer, generate=True, from_text=from_text
+        model = OPTForCausalLM(OPTConfig()).eval()
+        policy_inference = TransformersWrapper(
+            model,
+            tokenizer=tokenizer,
+            generate=True,
+            from_text=from_text,
+            return_log_probs=True,
         )
-        policy_train = from_hf_transformers(
+        policy_train = TransformersWrapper(
             model, tokenizer=tokenizer, generate=False, from_text=False
         )
         for p in policy_train.parameters():
