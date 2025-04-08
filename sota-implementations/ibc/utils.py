@@ -256,7 +256,8 @@ def make_ibc_model(cfg, train_env, eval_env, device="cpu"):
 
     # Create EBM network
     ebm_net = MLP(
-        num_cells=model_cfg.hidden_sizes,
+        num_cells=model_cfg.num_cells,
+        depth=model_cfg.depth,
         out_features=1,  # Energy value
         activation_class=ACTIVATIONS[model_cfg.activation],
         device=device,
@@ -315,7 +316,8 @@ def make_ibc_optimizer(optim_cfg, loss_module):
         weight_decay=optim_cfg.weight_decay,
         betas=optim_cfg.get("betas", (0.9, 0.999)),
     )
-    return optimizer
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=optim_cfg.lr_decay)
+    return optimizer, scheduler
 
 
 # ====================================================================

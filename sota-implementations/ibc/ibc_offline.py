@@ -81,7 +81,7 @@ def main(cfg: DictConfig):  # noqa: F821
     loss_module = make_loss(model, stochastic_optimizer)
 
     # Create optimizer
-    optimizer = make_ibc_optimizer(cfg.optim, loss_module)
+    optimizer, scheduler = make_ibc_optimizer(cfg.optim, loss_module)
 
     def update(data):
         optimizer.zero_grad(set_to_none=True)
@@ -129,6 +129,8 @@ def main(cfg: DictConfig):  # noqa: F821
         with timeit("update"):
             torch.compiler.cudagraph_mark_step_begin()
             loss_info = update(data)
+        
+        scheduler.step()
 
         # evaluation
         metrics_to_log = loss_info.to_dict()

@@ -452,7 +452,7 @@ class MCMC(StochasticOptimizer):
         optimize_again: bool = True,
         again_stepsize_scheduler: Dict[str, float] = None,
         device: str = "cpu",
-        noise_scale: float = 0.1,
+        noise_scale: float = 0.5,
         grad_clip: Optional[float] = 1.0,
         delta_action_clip: float = 0.5,
         add_grad_penalty: bool = True,
